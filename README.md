@@ -1,287 +1,41 @@
-# Rust OpenCV bindings
+# ! Temporary repository !
 
-[![Build status](https://github.com/twistedfall/opencv-rust/workflows/opencv-rust/badge.svg)](https://github.com/twistedfall/opencv-rust/actions/workflows/opencv-rust.yml)
-[![Documentation](https://docs.rs/opencv/badge.svg)](https://docs.rs/opencv)
-[![Package](https://img.shields.io/crates/v/opencv.svg)](https://crates.io/crates/opencv)
+At the time of writing, 12.04.2024 <sup>(dd.MM.yyyy)</sup>, you cannot compile [opencv-rust](twistedfall/opencv-rust/) (in dev mode), using the latest Rust nightly compiler (rustc 1.79.0-nightly), because of the new [unsafe_precondition enforcment instead of UB](https://github.com/rust-lang/rust/pull/120594).
 
-Experimental Rust bindings for OpenCV 3 and 4.
+Basically, if you try to compile atm using nightly, it will fail with the following error:
 
-The API is usable, but unstable and not very battle-tested; use at your own risk.
+```
+thread 'main' panicked at library\core\src\panicking.rs:155:5:
+unsafe precondition(s) violated: slice::from_raw_parts requires the pointer to be aligned and non-null, and the total size of the slice not to exceed `isize::MAX`
+```
 
-[Changelog](https://github.com/twistedfall/opencv-rust/blob/master/CHANGES.md)
-[Troubleshooting](https://github.com/twistedfall/opencv-rust/blob/master/TROUBLESHOOTING.md)
-[Support the project](https://github.com/sponsors/twistedfall)
+After some research, I found out that, this is caused by (as mentioned before) [Rust's #120594 PR](https://github.com/rust-lang/rust/pull/120594).
+However, the error is NOT produced by opencv-rust, instead it's produced by [clang-rs](https://github.com/KyleMayes/clang-rs) by the `tokenize` function which is called from [field.rs at line 153](https://github.com/twistedfall/opencv-rust/blob/985af46844b74581d38325561b5baa240292c797/binding-generator/src/field.rs#L153).
+There is [a PR opened in clang-rs](https://github.com/KyleMayes/clang-rs/pull/58) addressing this issue. For the opencv-rust to once again compile with nightly: clang-rs needs to merge the PR -> clang-rs has to release a new version -> (potentionaly) opencv-rust must bump up to the new version -> (potentionaly) opencv-rust has to release new version. I don't have that much time.
 
-## Quickstart
+## Fix 1
 
-Make sure the supported OpenCV version (3.4 or 4.x) and Clang (part of LLVM, needed for automatic binding
-generation) are installed in your system.
+You can use this repository as a drop-in replacement for the `opencv = "0.89.0"` inside of your `Cargo.toml` until the clang-rs fix is not available.
 
-Update your Cargo.toml
 ```toml
-opencv = "0.89.0"
+[dependencies]
+opencv = { git = "https://github.com/TDiblik/opencv-rust-nightly-compilation.git" }
 ```
 
-Import prelude
-```rust
-use opencv::prelude::*;
-```
+Once you've done that, you'll be able to compile your Rust project the same way you could with the stable compiler version.
 
-## Getting OpenCV
+## Fix 2
 
-See [INSTALL.md](https://github.com/twistedfall/opencv-rust/blob/master/INSTALL.md) for instructions on how to install required
-system dependencies.
+Since the new checks are only applied in debug mode, compilation with nightly using the release mode will work. HOWEVER that results in insane compile times, especially in larger codebases.
 
-## Troubleshooting
+## Fix 3
 
-See [TROUBLESHOOTING.md](https://github.com/twistedfall/opencv-rust/blob/master/TROUBLESHOOTING.md) for some common issues and
-their solutions.
+If you want to "fix" the "bug" inside `opencv-rust` directly, you could theoretically implement some checks before the code that calls the `tokenize` function (linked before), however I find that to be kinda pointless, since the fix to the `clang-rs` will get merged and shipped sooner or later.
 
-## Environment variables
+# What next?
 
-The following variables must be set when building without `pkg_config`, `cmake` or `vcpkg`. You can set them
-on any platform, the specified values will override those automatically discovered.
+This repository only "merges" and "includes" the clang-rs fix. Once the clang-rs fix gets merged and shipped, and opencv-rust will be compileable with nightly once again, I will archive this fork.
 
-* `OPENCV_LINK_LIBS`
-  Comma separated list of library names to link to. `.lib`, `.so` or `.dylib` extension is optional. If you
-  specify the ".framework" extension then build script will link a macOS framework instead of plain shared
-  library.
-  E.g. "opencv_world411".
+If you already see this fork as archived, it means that the bug I was facing is fixed in upstream and you SHOULD NOT use this fork in your Rust project.
 
-  If this list starts with '+' (plus sign) then the specified items will be appended to whatever the system
-  probe returned. E.g. a value of "+dc1394" will do a system discovery of the OpenCV library and its linked
-  libraries and then will additionally link `dc1394` library at the end. Can be useful if the system probe
-  produces a mostly working setup, but has incomplete link list, or the order is wrong (especially important
-  during static linking).
-
-* `OPENCV_LINK_PATHS`
-  Comma separated list of paths to search for libraries to link. E.g. "C:\tools\opencv\build\x64\vc15\lib".
-  The path list can start with '+', see `OPENCV_LINK_LIBS` for a detailed explanation (e.g.
-  "+/usr/local/lib").
-
-* `OPENCV_INCLUDE_PATHS`
-  Comma separated list of paths to search for system include files during compilation. E.g.
-  "C:\tools\opencv\build\include". One of the directories specified therein must contain
-  "opencv2/core/version.hpp" or "core/version.hpp" file, it's used to detect the version of the headers.
-  The path list can start with '+', see `OPENCV_LINK_LIBS` for a detailed explanation (e.g.
-  "+/opt/cuda/targets/x86_64-linux/include/").
-
-The following variables are rarely used, but you might need them under some circumstances:
-
-* `OPENCV_PACKAGE_NAME`
-  In some cases you might want to override the pkg-config, cmake or vcpkg package name, you can use this
-  environment variable for that. If you set it pkg-config will expect to find the file with that name and `.pc`
-  extension in the package directory. Cmake will look for that file with `.cmake` extension. And vcpkg will use
-  that name to try to find package in `packages` directory under `VCPKG_ROOT`. You can also use separate
-  environment variables to set different package names for different package systems:
-    * `OPENCV_PKGCONFIG_NAME`
-    * `OPENCV_CMAKE_NAME`
-    * `OPENCV_VCPKG_NAME`
-
-* `OPENCV_CMAKE_BIN`
-  Path to cmake binary (used in OpenCV discovery process using cmake). If not set then just "cmake" will be
-  used. For example, you can set something like "/usr/local/bin/cmake" here.
-
-* `OPENCV_DISABLE_PROBES`
-  Comma separated list of OpenCV package auto-discovery systems to exclude from running. Might be useful if
-  one of the higher priority systems is producing incorrect results. Can contain the following values:
-    * environment - reads data only from the `OPENCV_LINK_LIBS`, `OPENCV_LINK_PATHS` and `OPENCV_INCLUDE_PATHS`
-      environment variables
-    * pkg_config
-    * cmake
-    * vcpkg_cmake - like vcpkg, but only uses vcpkg for path discovery, the actual OpenCV probe is done using
-      cmake (cmake related environment variables are applicable with this probe)
-    * vcpkg
-
-* `OPENCV_MSVC_CRT`
-  Allows selecting the CRT library when building with MSVC for Windows. Allowed values are `"static"` for `/MT`
-  and `"dynamic"` for `/MD`.
-
-The following variables affect the building the of the `opencv` crate, but belong to external components:
-
-* `PKG_CONFIG_PATH`
-  Where to look for `*.pc` files see the [man pkg-config](https://linux.die.net/man/1/pkg-config)
-  Path specified here must contain `opencv.pc` (pre OpenCV 4) or `opencv4.pc` (OpenCV 4 and later).
-
-* `VCPKG_ROOT`, `VCPKGRS_DYNAMIC` and `VCPKGRS_TRIPLET`
-  The root of `vcpkg` installation, flag allowing use of `*.dll` libraries and selected `vcpkg` triplet, see the
-  [documentation for `vcpkg` crate](https://docs.rs/vcpkg)
-
-* `OpenCV_DIR`
-  The directory that contains OpenCV package cmake files. Usually there are `OpenCVConfig.cmake`,
-  `OpenCVConfig-version.cmake` and `OpenCVModules.cmake` in it.
-
-* `LD_LIBRARY_PATH`
-  On Linux it sets the list of directories to look for the installed `*.so` files during runtime.
-  [Linux documentation](https://tldp.org/HOWTO/Program-Library-HOWTO/shared-libraries.html) has more info.
-  Path specified here must contain `libopencv_*.so` files.
-
-* `DYLD_LIBRARY_PATH` and `DYLD_FALLBACK_LIBRARY_PATH`
-  Similar to `LD_LIBRARY_PATH`, but for loading `*.dylib` files on macOS, see [man dyld](https://man.cx/dyld(1))
-  and [this SO answer](https://stackoverflow.com/a/3172515) for more info. Path specified here must contain
-  `*.dylib` files.
-
-* `PATH`
-  Windows searches for `*.dll`s in `PATH` among other places, be sure to set it up, or copy required OpenCV
-  `*.dll`s next to your binary. Be sure to specify paths in UNIX style (/C/Program Files/Dir) because colon
-   in `PATH` might be interpreted as the entry separator. Summary [here](https://stackoverflow.com/a/6546427).
-
-* clang crate environment variables
-  See crate's [README](https://github.com/KyleMayes/clang-sys/blob/master/README.md#environment-variables)
-
-## Cargo features
-* There is a feature named after each OpenCV module (e.g. `imgproc`, `highgui`, etc.). They are all enabled by
-  default, but if a corresponding module is not found then it will silently be ignored. If you need to select a
-  specific set of modules be sure to disable the default features and provide the required feature set:
-  ```
-  opencv = { version = ..., default-features = false, features = ["calib3d", "features2d", "flann"]}
-  ```
-* `rgb` - allow using [`rgb`](https://crates.io/crates/rgb) crate types as `Mat` elements
-
-## API details
-
-[API Documentation](https://docs.rs/opencv) is automatically translated from OpenCV's doxygen docs. Most
-likely you'll still want to refer to the official [OpenCV C++ documentation](https://docs.opencv.org/master)
-as well.
-
-### OpenCV version support
-
-The following OpenCV versions are supported at the moment:
-* 3.4
-* 4.x
-
-### Minimum rustc version (MSRV)
-
-Currently, Rust version 1.66.0 or later is required. General policy is that rust version from 1 year ago is supported.
-Bumping versions older than that is not considered a breaking change.
-
-### Platform support
-
-Currently, the main development and testing of the crate is performed on Linux, but other major platforms are
-also supported: macOS and Windows.
-
-For some more details please refer to the CI build scripts:
-[Linux OpenCV install](https://github.com/twistedfall/opencv-rust/blob/master/ci/install-ubuntu.sh),
-[macOS OpenCV install as framework](https://github.com/twistedfall/opencv-rust/blob/master/ci/install-macos-framework.sh),
-[macOS OpenCV install via brew](https://github.com/twistedfall/opencv-rust/blob/master/ci/install-macos-brew.sh),
-[Windows OpenCV install via Chocolatey](https://github.com/twistedfall/opencv-rust/blob/master/ci/install-windows-chocolatey.sh),
-[Windows OpenCV install via vcpkg](https://github.com/twistedfall/opencv-rust/blob/master/ci/install-windows-vcpkg.sh),
-[Test runner script](https://github.com/twistedfall/opencv-rust/blob/master/ci/script.sh).
-
-### Functionality
-
-Generally the crate tries to only wrap OpenCV API and provide some convenience functions
-to be able to use it in Rust easier. We try to avoid adding any functionality besides
-that.
-
-### Errors
-
-Most functions return a `Result` to expose a potential C++ exception. Although some methods like property reads
-or functions that are marked CV_NOEXCEPT in the OpenCV headers are infallible and return a naked value.
-
-### CV_MAKETYPE
-
-`CV_MAKETYPE` and related `CV_MAT_DEPTH` constant functions are available to replace the corresponding OpenCV macros.
-Yet it's usually easier to call `::opencv_type()` function on the corresponding Rust type. E.g.:
-```rust
-let t = u16::opencv_type(); // equivalent to CV_MAKETYPE(CV_16U, 1)
-let t = Vec2f::opencv_type(); // equivalent to CV_MAKETYPE(CV_32F, 2)
-```
-
-### C++ operators
-Some C++ operators are supported, they are converted to the corresponding functions on Rust side. Here is the
-list with the corresponding function name:
-* `[]` → `get()` or `get_mut()`
-* `+`, `-` → `add()`, `sub()`
-* `*`, `/` → `mul()`, `div()`
-* `()` (function call) → `apply()`
-* `=` → `set()`
-* `*` (deref) → `try_deref()` or `try_deref_mut()`
-* `==`, `!=` → `equals()`, `not_equals()`
-* `>`, `>=` → `greater_than()`, `greater_than_or_equal()`
-* `<`, `<=` → `less_than()`, `less_than_or_equal()`
-* `++`, `--` → `incr()`, `decr()`
-* `&`, `|`, `^` → `and()`, `or()`, `xor()`
-* `!` → `negate()`
-
-### Class fields
-
-Fields of OpenCV classes are accessible through setters and getters. Those functions are infallible, they
-return the value directly instead of `Result`.
-
-### Infallible functions
-
-For infallible functions (like setters) that accept `&str` values the following logic applies: if a Rust
-string passed as argument contains null byte then this string will be truncated up to that null byte. So if
-for example you pass "123\0456" to the setter, the property will be set to "123".
-
-### Callbacks
-
-Some API functions accept callbacks, e.g. `set_mouse_callback`. While currently it's possible to successfully
-use those functions there are some limitations to keep in mind. Current implementation of callback handling
-leaks the passed callback argument. That means that the closure used as a callback will never be freed during
-the lifetime of a program and moreover Drop will not be called for it. There is a plan to implement possibility
-to be able to free at least some closures.
-
-### Unsafety
-
-Although the crate tries to provide an ergonomic Rust interface for OpenCV, don't expect
-Rust safety guarantees at this stage. It's especially true for the borrow-checking and the
-shared mutable ownership. Notable example would be `Mat` which is a reference counted
-object in its essence. You can own a seemingly separate `Mat` in Rust terms, but
-it's going to be a mutable reference to the other `Mat` under the hood. Treat safety
-of the crate's API as you would treat one of C++, use `clone()` when needed.
-
-## Contrib modules
-
-To be able to use some modules you need to have [`opencv_contrib`](https://github.com/opencv/opencv_contrib)
-installed. You can find the full list of contrib modules [here](https://github.com/opencv/opencv_contrib/tree/master/modules).
-
-## Missing modules and functions
-
-While most of the API is covered, for various reasons (that might no longer hold) there are modules and
-functions that are not yet implemented. If a missing module/function is near and dear to you, please file an
-issue (or better, open a pull request!).
-
-## The binding strategy
-
-This crate works similar to the model of python and java's OpenCV wrappers - it uses libclang to parse the
-OpenCV C++ headers, generates a C interface to the C++ API, and wraps the C interface in Rust.
-
-All the major modules in the C++ API are merged together in a huge `cv::` namespace. We instead made one rust
-module for each major OpenCV module. So, for example, C++ `cv::Mat` is `opencv::core::Mat` in this crate.
-
-The methods and field names have been snake_cased. Methods arguments with default value lose these default
-values, but they are reported in the API documentation.
-
-Overloaded methods have been mostly manually given different names or automatically renamed to *_1, *_2, etc.
-
-## Older OpenCV branches support
-### OpenCV 2
-
-If you can't use OpenCV 3.x or higher, the (no longer maintained) `0.2.4` version of this crate is known to
-work with OpenCV `2.4.7.13` (and probably other 2.4 versions). Please refer to the README.md file for that
-version because the crate has gone through the considerable rewrite since.
-
-### OpenCV 3.2
-
-The last version with confirmed OpenCV 3.2 support is 0.75.0, after that this branch of OpenCV is no longer
-tested and supported. It may still work though.
-
-## Contributor's Guide
-
-The binding generator code lives in a separate crate under [binding-generator](binding-generator). During the
-build phase it creates bindings from the header files and puts them into [bindings](bindings) directory. Those
-are then transferred to [src](src) for the consumption by the crate users.
-
-The crate itself, as imported by users, consists of generated rust code in [src](src) committed to the repo.
-This way, users don't have to handle the code generation overhead in their builds. When developing this crate,
-you can test changes to the binding generation using `cargo build -vv`. When changing the `binding-generator`,
-be sure to push changes to the generated code!
-
-If you're looking for things to improve be sure to search for `todo` and `fixme` labels in the project
-source, those usually carry the comment of what exactly needs to be fixed.
-
-The license for the original work is [MIT](https://opensource.org/licenses/MIT).
-
-Special thanks to [ttacon](https://github.com/ttacon) for yielding the crate name.
+I chose to "archive" (instead of "delete") once it's fixed, because there could be some "bright mind" that decides to use this in production forever...
