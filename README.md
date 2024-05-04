@@ -1,8 +1,10 @@
-# ! Temporary repository !
+# ! DO NOT USE !
 
-As of 04.05.2024 <sup>(dd.MM.yyyy)</sup>, the compilation errors which cause opencv to not compile on nightly, [have been resolved](https://github.com/twistedfall/opencv-rust/issues/548). If you're using this repository in your `Cargo.toml`, please migrate over to (at least) `opencv = "0.91.3"`.
+As of 04.05.2024 <sup>(dd.MM.yyyy)</sup>, the compilation errors which caused opencv to not compile on nightly, [have been resolved](https://github.com/twistedfall/opencv-rust/issues/548). If you're using this repository in your `Cargo.toml`, please migrate over to (at least) `opencv = "0.91.3"`.
 
-# Original README:
+# Here's the original README:
+
+## ! Temporary repository !
 
 At the time of writing, 12.04.2024 <sup>(dd.MM.yyyy)</sup>, you cannot compile [opencv-rust](twistedfall/opencv-rust/) (in dev mode), using the latest Rust nightly compiler (rustc 1.79.0-nightly), because of the new [unsafe_precondition enforcment instead of UB](https://github.com/rust-lang/rust/pull/120594).
 
